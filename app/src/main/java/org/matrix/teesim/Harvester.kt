@@ -168,17 +168,18 @@ object Harvester {
 
     /**
      * The editability we STAMP on a freshly built override. Synthesized level/version fields are
-     * always editable; the boot key/hash carry their own flag (set when built — true only for a
-     * fallback value), so they are not decided here; everything else (SUPPLEMENT ids, required
-     * captures) stays locked.
+     * always editable; the boot key carries its own flag (set when built — true only for a
+     * fallback value) and the boot hash is made editable in [buildOverrides]; everything else
+     * (SUPPLEMENT ids, required captures) stays locked.
      */
     private fun editableFor(field: String): Boolean = field in SYNTHESIZED_FIELDS
 
     /**
      * Whether the user's overrides.json may change [field] on [base]: synthesized level/version
-     * fields always; the boot key/hash only when their current override is a fallback (its editable
-     * flag is set) — a real captured, device-property or computed value is locked; everything else
-     * is ignored.
+     * fields always; the boot key only when its current override is a fallback (its editable flag
+     * is set — a real captured, device-property or computed key is KEK-frozen and locked); the
+     * boot hash always (a present, editable entry is guaranteed by [buildOverrides]); everything
+     * else is ignored.
      */
     private fun userEditable(field: String, base: Record): Boolean =
         when (field) {
@@ -367,8 +368,9 @@ object Harvester {
 
     /**
      * The full override map: the non-boot synthesized/required defaults, plus the boot key/hash
-     * overrides (each present only when the raw capture is unusable), each carrying its own
-     * editability.
+     * overrides (the key only when the raw capture is unusable — it is KEK-frozen so a captured
+     * value must never be replaced — and the hash always, since it is attestation-only and has no
+     * stored-key constraint), each carrying its own editability.
      */
     private fun buildOverrides(
         fab: Map<String, String>,
@@ -379,6 +381,11 @@ object Harvester {
         bootKeyOverride(rawKey)?.let { m["verifiedBootKey"] = bootOverride("verifiedBootKey", it) }
         bootHashOverride(rawHash)?.let {
             m["verifiedBootHash"] = bootOverride("verifiedBootHash", it)
+        }
+        if ("verifiedBootHash" !in m) {
+            // A usable raw capture gets no fallback override, but the hash must stay user-editable
+            // (see [userEditable]); present the captured value as the replaceable default.
+            m["verifiedBootHash"] = Override(rawHash.toHex(), sourceFor("verifiedBootHash"), true)
         }
         return m
     }
@@ -391,10 +398,11 @@ object Harvester {
 
     /**
      * Layer the user's overrides.json (field -> value) over the daemon's computed defaults,
-     * honoring only editable fields (see [userEditable]): the synthesized levels/versions, and the
-     * boot key/hash only when their value is a fallback — a hand-edited id, a required capture, or
-     * a real/computed boot value is ignored. A blank value resets a field to its computed default;
-     * an out-of-range value is dropped with a warning. This is what the daemon pushes.
+     * honoring only editable fields (see [userEditable]): the synthesized levels/versions, the
+     * boot hash always, and the boot key only when its value is a fallback — a hand-edited id, a
+     * required capture, or a real/computed boot key is ignored. A blank value resets a field to
+     * its computed default; an out-of-range value is dropped with a warning. This is what the
+     * daemon pushes.
      */
     fun applyUserOverrides(base: Record, user: Map<String, String>): Record {
         if (user.isEmpty()) return base
