@@ -25,7 +25,10 @@ esac
 ENVPREFIX="$(echo "$TRIPLE" | tr '[:lower:]-' '[:upper:]_')"
 
 if [ -z "${NDK_HOME:-}" ]; then
-  NDK_HOME="$(ls -d "${ANDROID_HOME:-$HOME/Android/Sdk}"/ndk/* 2>/dev/null | sort -V | tail -1)"
+  # An explicitly pinned NDK (e.g. CI's ANDROID_NDK_HOME) wins over newest-installed: newer NDKs
+  # break the openssl-sys bindgen step (unversioned-target-triple cdefs error).
+  NDK_HOME="${ANDROID_NDK_HOME:-}"
+  [ -d "$NDK_HOME" ] || NDK_HOME="$(ls -d "${ANDROID_HOME:-$HOME/Android/Sdk}"/ndk/* 2>/dev/null | sort -V | tail -1)"
 fi
 [ -d "$NDK_HOME" ] || { echo "NDK not found; set NDK_HOME" >&2; exit 1; }
 # Set every NDK variable cargo-ndk consults to the one NDK we resolved, so it neither warns about a
